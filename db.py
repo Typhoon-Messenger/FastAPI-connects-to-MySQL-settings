@@ -2,7 +2,7 @@ from fastapi import FastAPI,HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession,create_async_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import *
-from sqlalchemy import String,Integer,select
+from sqlalchemy import String,Integer,select,delete
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import List
@@ -68,9 +68,10 @@ class StudentCreate(StudentBase):
 class StudenUpdate(StudentBase):
     ...
 
-class studentOut(StudentBase):
+class StudentOut(StudentBase):
     id : int
 
+# 中间件函数
 async def creat_session_middleware(request:Request,call_next):
     session = AsyncSessionFactory()
     request.state.session = session
@@ -82,7 +83,7 @@ app = FastAPI()
 
 app.add_middleware(BaseHTTPMiddleware,dispatch=creat_session_middleware)
 
-@app.get("/student",response_model=List[studentOut])
+@app.get("/student",response_model=List[StudentOut])
 async def get_student_list(request: Request):
     session = request.state.session
     try:
@@ -94,7 +95,7 @@ async def get_student_list(request: Request):
     except:
         raise HTTPException(status_code=400,detail="查找用户失败")
 
-@app.post("/student/add",response_model=studentOut)
+@app.post("/student/add",response_model=StudentOut)
 async def add_student(student: StudentCreate, request: Request):
     session = request.state.session
     
@@ -105,13 +106,13 @@ async def add_student(student: StudentCreate, request: Request):
                 gender = student.gender)
             session.add(query)
         # await SQL.refresh(SQL)
-        return studentOut.model_validate(query)
+        return query
     
-    except:
+    except SQLAlchemyError:
         raise HTTPException(status_code=400,detail="添加用户失败")
 
 
-@app.put("/student/{student_id}")
+@app.put("/student/{student_id}",response_model=StudentOut)
 async def update_student(student_id : int, student:StudenUpdate, request: Request):
     session = request.state.session
     try:
@@ -125,6 +126,31 @@ async def update_student(student_id : int, student:StudenUpdate, request: Reques
             
             exist_student.name = student.name
             exist_student.gender = student.gender
+            
+        return exist_student
+    
+    except SQLAlchemyError:
+        raise HTTPException(status_code=400,detail="数据库发生错误")
+
+@app.delete("/student/{student_id}",response_model=StudentOut)
+async def delete_student(student_id : int, request:Request):
+    session = request.state.session
+    try:
+        async with session.begin():
+            query = select(StudentEntity).where(StudentEntity.id == student_id)
+            result = await session.execute(query)
+            exist_student = result.scalar()
+            
+            if not exist_student:
+                raise HTTPException(status_code=404,detail="查找不到用户")
+    
+    except SQLAlchemyError:
+        raise HTTPException(status_code=400,detail="数据库发生错误")
+    
+    
+    try:
+        async with session.begin():
+            await session.delete(exist_student)
             
         return exist_student
     
