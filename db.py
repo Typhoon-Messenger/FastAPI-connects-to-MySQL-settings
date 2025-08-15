@@ -1,5 +1,6 @@
 from fastapi import FastAPI,HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession,create_async_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import *
 from sqlalchemy import String,Integer,select
 from contextlib import asynccontextmanager
@@ -64,6 +65,9 @@ class StudentBase(BaseModel):
 class StudentCreate(StudentBase):
     ...
     
+class StudenUpdate(StudentBase):
+    ...
+
 class studentOut(StudentBase):
     id : int
 
@@ -89,3 +93,40 @@ async def get_student_list(request: Request):
             return select_result
     except:
         raise HTTPException(status_code=400,detail="查找用户失败")
+
+@app.post("/student/add",response_model=studentOut)
+async def add_student(student: StudentCreate, request: Request):
+    session = request.state.session
+    
+    try:
+        async with session.begin():
+            query = StudentEntity(
+                name = student.name,
+                gender = student.gender)
+            session.add(query)
+        # await SQL.refresh(SQL)
+        return studentOut.model_validate(query)
+    
+    except:
+        raise HTTPException(status_code=400,detail="添加用户失败")
+
+
+@app.put("/student/{student_id}")
+async def update_student(student_id : int, student:StudenUpdate, request: Request):
+    session = request.state.session
+    try:
+        async with session.begin():
+            
+            select_query = select(StudentEntity).where(StudentEntity.id == student_id)
+            result = await session.execute(select_query)
+            exist_student = result.scalar()
+            if not exist_student:
+                raise HTTPException(status_code=404,detail="查找不到用户")
+            
+            exist_student.name = student.name
+            exist_student.gender = student.gender
+            
+        return exist_student
+    
+    except SQLAlchemyError:
+        raise HTTPException(status_code=400,detail="数据库发生错误")
